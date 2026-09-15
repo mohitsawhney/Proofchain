@@ -33,11 +33,34 @@ function path(...parts: string[]): string {
  return parts.map((part) => encodeURIComponent(part)).join('/');
 }
 
+// Realtime Database treats null as deletion, so nullable signed fields disappear
+// from snapshots. Restore them before schema/hash/signature verification.
+function normalizeEvidence(record: Evidence): Evidence {
+ return { ...record, perceptualHash: record.perceptualHash ?? null };
+}
+
+function normalizeEvent(event: CustodyEvent): CustodyEvent {
+ return {
+  ...event,
+  toUserId: event.toUserId ?? null,
+  verifiedSha256: event.verifiedSha256 ?? null,
+ };
+}
+
 function asRecord(value: unknown): CloudRecord {
  if (!value || typeof value !== 'object') throw new Error('The Firebase record is malformed.');
  const record = value as Partial<CloudRecord>;
  if (!record.record || !record.events || typeof record.events !== 'object') throw new Error('The Firebase record is incomplete.');
- return { ...record, participants: record.participants ?? {}, events: record.events as Record<string, CustodyEvent> } as CloudRecord;
+ const events = Object.fromEntries(
+  Object.entries(record.events as Record<string, CustodyEvent>).map(([id, event]) => [id, normalizeEvent(event)]),
+ );
+ return {
+  ...record,
+  record: normalizeEvidence(record.record),
+  pendingRecipient: record.pendingRecipient ?? null,
+  participants: record.participants ?? {},
+  events,
+ } as CloudRecord;
 }
 
 function participantsFor(bundle: ProofBundle, checked: Awaited<ReturnType<typeof verifyFullCustodyChain>>, previous?: CloudRecord): Record<string, true> {
